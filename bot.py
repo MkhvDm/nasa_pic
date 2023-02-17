@@ -34,8 +34,8 @@ def get_start_menu():
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
-        [InlineKeyboardButton("🌌Картинка дня", callback_data="1")],
-        [InlineKeyboardButton("❤️Избранное", callback_data="2")],
+        [InlineKeyboardButton("🌌 Картинка дня", callback_data="1")],
+        [InlineKeyboardButton("❤ Избранное", callback_data="2")],
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     # todo get or create user
