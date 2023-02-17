@@ -2,7 +2,7 @@ import os
 import time
 import logging
 
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update, Dice
 from telegram.ext import ApplicationBuilder, CallbackQueryHandler, ContextTypes, CommandHandler
 
 from dotenv import load_dotenv
@@ -20,6 +20,7 @@ BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
 
 ENDPOINT = ''
 
+
 def get_start_menu():
     keyboard = [
         [
@@ -30,22 +31,26 @@ def get_start_menu():
     reply_markup = InlineKeyboardMarkup(keyboard)
     return reply_markup
 
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
-        [
-            InlineKeyboardButton("Option 1", callback_data="1"),
-            InlineKeyboardButton("Option 2", callback_data="2"),
-        ],
-        [InlineKeyboardButton("Option 3", callback_data="3")],
+        [InlineKeyboardButton("🌌Картинка дня", callback_data="1")],
+        [InlineKeyboardButton("❤️Избранное", callback_data="2")],
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     # todo get or create user
+    message = (
+        f'Привет, {update.effective_user.first_name}!'
+        '\nПосмотрим на звёзды сегодня?'
+    )
+    # print(update.effective_chat.first_name)  # alter.
     
-    await update.message.reply_text("Please choose:", reply_markup=reply_markup)
+    await update.message.reply_text(message, reply_markup=reply_markup)
     # await context.bot.send_message(
     #     chat_id=update.effective_chat.id,
     #     text='Hi, no pic yet...'
     # )
+
 
 async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Parses the CallbackQuery and updates the message text."""
@@ -69,6 +74,8 @@ if __name__ == '__main__':
     application.add_handler(CallbackQueryHandler(button))
 
     get_pic_handler = CommandHandler('get', get_pic)
+
+    #todo message handler with logging
 
     application.add_handler(get_pic_handler)
     application.add_handler(start_handler)
