@@ -1,36 +1,33 @@
-import os
-import time
 import logging
-import requests
-from datetime import datetime, timedelta
-from pytz import timezone
+import os
+import re
+from datetime import datetime
+from http import HTTPStatus
 
 import psycopg2
-from psycopg2.extensions import ISOLATION_LEVEL_AUTOCOMMIT
-
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update, KeyboardButton, InputMediaPhoto
-from telegram.ext import ApplicationBuilder, CallbackQueryHandler, ContextTypes, CommandHandler
-from telegram.constants import MessageLimit
-
-from utils import ExtDate
-import database as db
-
+import requests
 from dotenv import load_dotenv
+from psycopg2.errors import OperationalError
+from psycopg2.extensions import ISOLATION_LEVEL_AUTOCOMMIT
+from pytz import timezone
+from telegram import (InlineKeyboardButton, InlineKeyboardMarkup,
+                      InputMediaPhoto, Update)
+from telegram.ext import (ApplicationBuilder, CallbackQueryHandler,
+                          CommandHandler, MessageHandler, ContextTypes,
+                          filters)
+
+import database as db
+from bot_logger import logger_config
+from utils import ExtDate
 
 load_dotenv()
 
-logging.basicConfig(
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=logging.INFO
-)
+bot_logger = logging.getLogger(__name__)
 
 ENDPOINT = 'https://api.nasa.gov/planetary/apod?api_key={}&date={}'
-
-
 NASA_TOKEN = os.getenv('NASA_TOKEN')
 BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
 NASA_API_TZ = timezone('US/Eastern')
-# MessageLimit.CAPTION_LENGTH = 4096
 
 DB_DIALECT  = os.getenv('DB_DIALECT')
 DB_HOSTNAME = os.getenv('DB_HOSTNAME')
@@ -45,174 +42,159 @@ DB_URL = "%s://%s:%s@%s/%s" % (
     DB_DATABASE
 )
 
+def get_start_keyboard(date: str):
+    """Стартовое меню."""
+    keyboard = [
+        [InlineKeyboardButton("🌌 Картинка дня", callback_data=date)],
+        [InlineKeyboardButton("❤ Избранное", callback_data="favs")],
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+def build_fav_keyboard(prev: str, next: str):
+    # TODO favorite listing
+    pass
 
 def build_listing_keyboard(date: str):
-    # prev_date = (datetime.strptime(date, '%Y-%m-%d') - timedelta(days=1)).strftime('%Y-%m-%d')
+    """Создание клавиатуры-листалки фото."""
     prev_date = ExtDate.strptime(date, '%Y-%m-%d').get_prev_day()
-    # next_date = (datetime.strptime(date, '%Y-%m-%d') + timedelta(days=1)).strftime('%Y-%m-%d')
     next_date = ExtDate.strptime(date, '%Y-%m-%d').get_next_day()
 
     keyboard = [
-        [InlineKeyboardButton("add to favorite", callback_data='favs'), ],
-        [InlineKeyboardButton("prev", callback_data=prev_date), InlineKeyboardButton("next", callback_data=next_date), ],
+        [InlineKeyboardButton("add to favorite", callback_data=f'favs_add: {date}'), ],
+        [InlineKeyboardButton("⬅️", callback_data=prev_date), InlineKeyboardButton("➡️", callback_data=next_date), ],
         [InlineKeyboardButton("return to menu", callback_data='menu'), ],
     ]
     return InlineKeyboardMarkup(keyboard)
 
 def build_prev_keyboard(date: str):
-    # prev_date = (datetime.strptime(date, '%Y-%m-%d') - timedelta(days=1)).strftime('%Y-%m-%d')
+    """Создание клавиатуры-листалки (без кнопки 'Далее')."""
     prev_date = ExtDate.strptime(date, '%Y-%m-%d').get_prev_day()
     keyboard = [
-        [InlineKeyboardButton("add to favorite", callback_data='favs'), ],
-        [InlineKeyboardButton("prev", callback_data=prev_date), ],
+        [InlineKeyboardButton("add to favorite", callback_data=f'favs_add: {date}'), ],
+        [InlineKeyboardButton("⬅️", callback_data=prev_date), ],
         [InlineKeyboardButton("return to menu", callback_data='menu'), ],
     ]
     return InlineKeyboardMarkup(keyboard)
 
-
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = db.User(update.effective_user) # TODO PAUSE HERE
+    """Начало чата, регистрация новых пользователей."""
+    user = db.User(update.effective_user)
     if user.exists():
-        print('С Возвращением. Ты уже существуешь.')
+        bot_logger.info(f'Вошёл существующий пользователь (id = {user.user_id})')
     else:
         user.commit()
-    print(f'User in db: {user}')
+        bot_logger.info(f'Новый пользователь (id = {user.user_id})')
 
-    # date = ExtDate.now(tz=NASA_API_TZ)
-    # print(f'TYPE DATE: {type(date)}')
-    # date = date.yyyy_mm_dd()  # FIXME WORK ON eastern US timezone
     date = datetime.now(tz=NASA_API_TZ).strftime('%Y-%m-%d')
-    print(f'DATE on start: {date}')
-
-    keyboard = [
-        [InlineKeyboardButton("🌌 Картинка дня", callback_data=date)],
-        [InlineKeyboardButton("❤ Избранное", callback_data="favs")],
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    # todo get or create user
     message = (
         f'Привет, {update.effective_user.first_name}!'
         '\nПосмотрим на звёзды сегодня?'
     )    
-    # await update.message.reply_text(message, reply_markup=reply_markup)
     await context.bot.send_message(
         chat_id=update.effective_chat.id,
         text=message,
-        reply_markup=reply_markup
+        reply_markup=get_start_keyboard(date)
     )
 
-
 async def button_dispatcher(update: Update, context):
+    """Перенаправление на нужный обработчик исходя из текста запроса."""
     query_data = update.callback_query.data
-    print(f'dispatch: {query_data}')
+    bot_logger.debug('Запрос: {query_data}')
     if query_data == 'favs':
         await favs(update, context)
+    if query_data.startswith('favs_add'):
+        await favs_add(update, context)
     elif query_data == 'menu':
         await update.callback_query.delete_message()
         await start(update, context)
-    else:
+    else:  # date in query 
         await get_img(update, context)
 
-
-async def get_img(update: Update, context: ContextTypes.DEFAULT_TYPE): # rename listing
-    """Parses the CallbackQuery and updates the message text."""
-    print('---------------------------------------')
+async def get_img(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Получение картинок и возвращение клавиатуры-листалки."""
     query = update.callback_query
     await query.answer()
     date_str = query.data
-    print(f'DATE: {date_str}')
+    bot_logger.info(f'Получение фото от {date_str}')
     endpoint = ENDPOINT.format(NASA_TOKEN, date_str)
-    response = requests.get(endpoint).json()
-    # print(f'RESPONSE: {response}')
-    image_url = response.get('url')
-    caption = f'Картинка от {date_str[-2:]}.{date_str[-5:-3]}\n' + response.get('explanation')
-    print(f'caption len: {len(caption)}')
-    if len(caption) > 1024:
-        caption_ext = caption[1024:2048]
-        caption = caption[:1021] + '...'
+    response = requests.get(endpoint)
+    if response.status_code != HTTPStatus.OK:
+        bot_logger.error('Не удалось получить данные с APOD API!')
+        image_url = 'http://lamcdn.net/lookatme.ru/post_image-image/sIaRmaFSMfrw8QJIBAa8mA-small.png'
+        caption = 'Что-то пошло не так :( Уже чиним...'
+    else:
+        response = response.json()
+        image_url = response.get('url')
+        caption = f'Картинка от {date_str[-2:]}.{date_str[-5:-3]}\n' + response.get('explanation') 
+        if len(caption) > 1024:
+            caption_ext = caption[1024:2048]  # TODO with additional message or extend caption capacity
+            caption = caption[:1021] + '...'
 
-    if date_str == datetime.now(tz=NASA_API_TZ).strftime('%Y-%m-%d'):  #ExtDate.now().yyyy_mm_dd():
+    if date_str == datetime.now(tz=NASA_API_TZ).strftime('%Y-%m-%d'):
         reply_markup = build_prev_keyboard(date_str)
     else:
         reply_markup = build_listing_keyboard(date_str)
 
     chat = update.effective_chat
-    print('***********************************')
-    # print(f'IS IMG? {query.message.photo}')
     if not query.message.photo:
         await query.delete_message()
         await context.bot.send_photo(chat.id, image_url, caption, reply_markup=reply_markup)
         return
-    print('***********************************')
 
     await query.edit_message_media(media=InputMediaPhoto(image_url, caption), reply_markup=reply_markup)
-    # await context.bot.edit_message_media(media=image_url, chat_id=chat.id, reply_markup=reply_markup)
-    # await query.edit_message_reply_markup()
-    # await context.bot.send_photo(chat.id, image_url, reply_markup=reply_markup)
-    # await query.edit_message_text(text=f"Selected option: {query.data}")
 
 async def favs(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Возвращает дату последнего избранного фото."""
     query = update.callback_query
     await query.answer()
+    user = db.User(update.effective_user)
+    last_fav = user.get_fav()[0]
+    pic_date = last_fav.pic_date
+    
     keyboard = [
+        [InlineKeyboardButton("⬅️", callback_data=f'fav: {pic_date}'), ],
         [InlineKeyboardButton("return to menu", callback_data='menu'), ],
     ]
-    message = 'TODO листалка избранные фото'    
-    await query.edit_message_text(text=message, reply_markup=InlineKeyboardMarkup(keyboard))
-    # await update.message.reply_text(message, reply_markup=InlineKeyboardMarkup(keyboard))
 
+    message = pic_date
+    await query.edit_message_text(text=message, reply_markup=InlineKeyboardMarkup(keyboard))
+
+async def favs_add(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Добавление в БД данных о избранных фото пользователей."""
+    query = update.callback_query
+    parsed_date = re.match('^.*(\d\d\d\d-\d\d-\d\d)$', query.data).group(1)
+    fav = db.Favorite(update.effective_user.id, parsed_date)
+    if fav.exists():
+        await context.bot.answer_callback_query(callback_query_id=query.id, text='Уже в избранном!', show_alert=True)
+        bot_logger.info('Пользователь пытался добавить фото, которое уже в избранном.')
+    else:
+        fav.commit()
+        await context.bot.answer_callback_query(callback_query_id=query.id, text='Добавлено!', show_alert=True)
+        bot_logger.info(
+            f'Пользователь ({update.effective_user.id}) добавил фото от {parsed_date} в избранное.'
+        )
+    await query.answer()
+
+def user_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    bot_logger.info(f'Сообщение от пользователя ({update.effective_user.id}): {update.effective_message.text}')
 
 if __name__ == '__main__':
-
-    conn = psycopg2.connect(dbname='postgres', user='postgres', password='postgres_pass', host='localhost')
-    conn.set_isolation_level(ISOLATION_LEVEL_AUTOCOMMIT)
-    cursor = conn.cursor()
-
-    # cursor.execute(
-    #     '''
-    #     DROP TABLE favs;
-    #     '''
-    # )
-    # conn.commit()
-    # cursor.execute(
-    #     '''
-    #     DROP TABLE users;
-    #     '''
-    # )
-    # conn.commit()
-
-    # cursor.execute('''
-    # CREATE TABLE users
-    # (USER_ID INT PRIMARY KEY NOT NULL,
-    # FIRST_NAME TEXT,
-    # LAST_NAME TEXT,
-    # USERNAME TEXT,
-    # IS_BOT BOOLEAN
-    # );
-    # ''')
-    # conn.commit() # (ID, FIRST_NAME, LAST_NAME) VALUES (1, 'Tester', 'Testerov')
-
-    # cursor.execute('''
-    # CREATE TABLE favs
-    # (
-    # ID INT PRIMARY KEY NOT NULL
-    # USER_ID INT NOT NULL,
-    # pic_date TEXT NOT NULL
-    # );
-    # ''')
-    # conn.commit()
-
-    # cursor.execute('''
-    #     SELECT * FROM users; 
-    #     ''')
-    # conn.commit()
-
+    logger_config(bot_logger)
+    bot_logger.debug('Preparing bot...')
+    try:
+        conn = psycopg2.connect(
+            dbname=DB_DATABASE, 
+            user=DB_USERNAME, 
+            password=DB_PASSWORD, 
+            host=DB_HOSTNAME)
+        conn.set_isolation_level(ISOLATION_LEVEL_AUTOCOMMIT)
+        cursor = conn.cursor()
+        bot_logger.info('Succees connect to DB!')
+    except OperationalError as err:
+        bot_logger.error(f'Connect to DB error! {err}')
 
     application = ApplicationBuilder().token(BOT_TOKEN).build()
-
     application.add_handler(CommandHandler('start', start))
     application.add_handler(CallbackQueryHandler(button_dispatcher))
-    # application.add_handler(CallbackQueryHandler(favs))
-
-    #todo message handler with logging
+    application.add_handler(MessageHandler(filters=filters.TEXT, callback=user_messages))
     application.run_polling()

@@ -1,11 +1,10 @@
-from sqlalchemy import create_engine, Column, Integer, String, Boolean, \
-    DateTime, ForeignKey, exists, update
-from sqlalchemy.sql import select, func
+from sqlalchemy import (Boolean, Column, DateTime, ForeignKey, Integer,
+                        MetaData, String, Table, Text, and_, create_engine,
+                        exists, select, update)
 from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.schema import PrimaryKeyConstraint
 from sqlalchemy.orm import sessionmaker
-from sqlalchemy import MetaData, Table, String, Integer, Column, Text, DateTime, Boolean
-
+from sqlalchemy.schema import PrimaryKeyConstraint
+from sqlalchemy.sql import func, select
 
 from bot import DB_URL
 
@@ -58,6 +57,10 @@ class User(Base):
         return session.query(exists().where(
             User.user_id == self.user_id)).scalar()
 
+    def get_fav(self):
+        query = select(Favorite).where(Favorite.user_id==self.user_id).order_by(Favorite.id.desc())
+        return session.execute(query).fetchone()
+
     def commit(self):
         session.add(self)
         session.commit()
@@ -75,24 +78,24 @@ class Favorite(Base):
     user_id = Column(Integer, ForeignKey("users.user_id"), nullable=False)
     pic_date = Column(String, nullable=False)
 
-    def __init__(self, user, date: str):
-        self.user_id = user.user_id
+    def __init__(self, user_id: int, date: str):
+        self.user_id = user_id
         self.pic_date = date
 
+    def exists(self):
+        return session.query(
+            exists().where(
+                and_(
+                    Favorite.user_id == self.user_id,
+                    Favorite.pic_date == self.pic_date
+                )
+            )).scalar()
+               
+    def commit(self):
+        session.add(self)
+        session.commit()
 
-
-# class BotDB:
-
-#     def __init__(self, db_file):
-#         self.conn = psycopg2.connect(  # TODO from .env
-#             dbname='postgres', 
-#             user='postgres', 
-#             password='postgres_pass', 
-#             host='localhost'
-#         )
-#         self.cursor = self.conn.cursor()
-
-#     def user_exists(self, user_id):
-#         """Проверяем, есть ли юзер в базе"""
-#         result = self.cursor.execute("SELECT `id` FROM `users` WHERE `user_id` = ?", (user_id,))
-#         return bool(len(result.fetchall()))
+    def __repr__(self):
+        return "<Fav (user_id='%i', pic_date='%s'>" % (
+            self.user_id, self.pic_date
+        )
