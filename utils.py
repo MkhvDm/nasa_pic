@@ -3,9 +3,6 @@ from datetime import datetime, timedelta
 
 class ExtDate(datetime):
 
-    # def now(self, *args, **kwargs):
-    #     super().now(self, *args, **kwargs)
-
     def _get_near_date(self, is_prev=True, num_days=1):
         """Return prev or next day (or few days) in format YYYY-MM-DD."""
         if is_prev:
@@ -23,6 +20,3 @@ class ExtDate(datetime):
 
     def yyyy_mm_dd(self):
         return self.strftime('%Y-%m-%d')
-
-    # def get_datetime_from_yyyy_mm_dd(yyyy_mm__dd: str):
-    #     return
