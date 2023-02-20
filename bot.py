@@ -107,8 +107,10 @@ async def button_dispatcher(update: Update, context):
     elif query_data == 'menu':
         await update.callback_query.delete_message()
         await start(update, context)
-    else:  # date in query 
+    elif re.match('^(\d\d\d\d-\d\d-\d\d)$', query_data): # parse date exist
         await get_img(update, context)
+    else:
+        bot_logger.debug('Необознанный запрос!')
 
 async def get_img(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Получение картинок и возвращение клавиатуры-листалки."""
