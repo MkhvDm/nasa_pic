@@ -3,6 +3,7 @@ import os
 import re
 from datetime import datetime
 from http import HTTPStatus
+from typing import Union, Tuple
 
 import psycopg2
 import requests
@@ -26,7 +27,7 @@ bot_logger = logging.getLogger(__name__)
 
 ENDPOINT = 'https://api.nasa.gov/planetary/apod?api_key={}&date={}'
 NASA_TOKEN = os.getenv('NASA_TOKEN')
-BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
+BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN_TEST')
 NASA_API_TZ = timezone('US/Eastern')
 
 DB_DIALECT  = os.getenv('DB_DIALECT')
@@ -42,17 +43,23 @@ DB_URL = "%s://%s:%s@%s/%s" % (
     DB_DATABASE
 )
 
-def get_start_keyboard(date: str):
+def get_start_keyboard(date: str, fav_date: Union[str, None] = None):
     """Стартовое меню."""
-    keyboard = [
-        [InlineKeyboardButton("🌌 Картинка дня", callback_data=date)],
-        [InlineKeyboardButton("❤ Избранное", callback_data="favs")],
-    ]
+    keyboard = [[InlineKeyboardButton("🌌 Картинка дня", callback_data=date)],]
+    if fav_date:
+        keyboard.append([InlineKeyboardButton("❤ Избранное", callback_data=fav_date)],)
     return InlineKeyboardMarkup(keyboard)
 
-def build_fav_keyboard(prev: str, next: str):
+def build_fav_keyboard(prev: str, next: Union[str, None] = None):
     # TODO favorite listing
-    pass
+    if next:
+        pass
+    else:
+        keyboard = [
+            [InlineKeyboardButton("⬅️", callback_data=f'fav: {prev}'), ],
+            [InlineKeyboardButton("return to menu", callback_data='menu'), ],
+        ]
+    return InlineKeyboardMarkup(keyboard)
 
 def build_listing_keyboard(date: str):
     """Создание клавиатуры-листалки фото."""
@@ -76,6 +83,11 @@ def build_prev_keyboard(date: str):
     ]
     return InlineKeyboardMarkup(keyboard)
 
+def build_return_to_menu_kb():
+    """Клавиатура с кнопкой возврата в главное меню."""
+    keyboard = [[InlineKeyboardButton("return to menu", callback_data='menu'), ], ]
+    return InlineKeyboardMarkup(keyboard)
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Начало чата, регистрация новых пользователей."""
     user = db.User(update.effective_user)
@@ -86,6 +98,14 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         bot_logger.info(f'Новый пользователь (id = {user.user_id})')
 
     date = datetime.now(tz=NASA_API_TZ).strftime('%Y-%m-%d')
+    user_fav = user.get_fav()
+    bot_logger.info(f'User have fav? - {user_fav}')
+    if user_fav:
+        fav_date = f'fav: {user_fav[0].pic_date}'
+        print(f'insert fav query: {fav_date}')
+    else:
+        fav_date = None
+
     message = (
         f'Привет, {update.effective_user.first_name}!'
         '\nПосмотрим на звёзды сегодня?'
@@ -93,14 +113,14 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await context.bot.send_message(
         chat_id=update.effective_chat.id,
         text=message,
-        reply_markup=get_start_keyboard(date)
+        reply_markup=get_start_keyboard(date, fav_date)
     )
 
 async def button_dispatcher(update: Update, context):
     """Перенаправление на нужный обработчик исходя из текста запроса."""
     query_data = update.callback_query.data
     bot_logger.debug('Запрос: {query_data}')
-    if query_data == 'favs':
+    if query_data.startswith('fav: '):
         await favs(update, context)
     if query_data.startswith('favs_add'):
         await favs_add(update, context)
@@ -112,13 +132,8 @@ async def button_dispatcher(update: Update, context):
     else:
         bot_logger.debug('Необознанный запрос!')
 
-async def get_img(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Получение картинок и возвращение клавиатуры-листалки."""
-    query = update.callback_query
-    await query.answer()
-    date_str = query.data
-    bot_logger.info(f'Получение фото от {date_str}')
-    endpoint = ENDPOINT.format(NASA_TOKEN, date_str)
+def get_api_response(date: str) -> Tuple[str, str]:
+    endpoint = ENDPOINT.format(NASA_TOKEN, date)
     response = requests.get(endpoint)
     if response.status_code != HTTPStatus.OK:
         bot_logger.error('Не удалось получить данные с APOD API!')
@@ -127,10 +142,20 @@ async def get_img(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         response = response.json()
         image_url = response.get('url')
-        caption = f'Картинка от {date_str[-2:]}.{date_str[-5:-3]}\n' + response.get('explanation') 
-        if len(caption) > 1024:
-            caption_ext = caption[1024:2048]  # TODO with additional message or extend caption capacity
-            caption = caption[:1021] + '...'
+        caption = f'Картинка от {date[-2:]}.{date[-5:-3]}\n' + response.get('explanation')
+    return (image_url, caption)
+
+
+async def get_img(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Получение картинок и возвращение клавиатуры-листалки."""
+    query = update.callback_query
+    await query.answer()
+    date_str = query.data
+    bot_logger.info(f'Получение фото от {date_str}')
+    image_url, caption = get_api_response(date_str)
+    if len(caption) > 1024:
+        caption_ext = caption[1024:2048]  # TODO with additional message or extend caption capacity
+        caption = caption[:1021] + '...'
 
     if date_str == datetime.now(tz=NASA_API_TZ).strftime('%Y-%m-%d'):
         reply_markup = build_prev_keyboard(date_str)
@@ -146,20 +171,28 @@ async def get_img(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.edit_message_media(media=InputMediaPhoto(image_url, caption), reply_markup=reply_markup)
 
 async def favs(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Возвращает дату последнего избранного фото."""
+    """Возвращает дату последнего избранного фото. FIXME"""
     query = update.callback_query
+    query_fav_date = query.data
     await query.answer()
-    user = db.User(update.effective_user)
-    last_fav = user.get_fav()[0]
-    pic_date = last_fav.pic_date
+    bot_logger.info(f'Query-запрос: {query_fav_date}')
+    parsed_date = re.match('fav: (\d\d\d\d-\d\d-\d\d)', query_fav_date).group(1)
+    bot_logger.info(f'Match: {parsed_date}')
+    image_url, caption = get_api_response(parsed_date)
+    ####
+    reply_markup = build_fav_keyboard(parsed_date)
+    if not query.message.photo:
+        await query.delete_message()
+        await context.bot.send_photo(
+            update.effective_chat.id, 
+            image_url, 
+            caption, 
+            reply_markup=reply_markup
+        )
+        return
+    await query.edit_message_media(media=InputMediaPhoto(image_url, caption), reply_markup=reply_markup)
     
-    keyboard = [
-        [InlineKeyboardButton("⬅️", callback_data=f'fav: {pic_date}'), ],
-        [InlineKeyboardButton("return to menu", callback_data='menu'), ],
-    ]
-
-    message = pic_date
-    await query.edit_message_text(text=message, reply_markup=InlineKeyboardMarkup(keyboard))
+    # await query.edit_message_text(text=message, reply_markup=reply_markup)
 
 async def favs_add(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Добавление в БД данных о избранных фото пользователей."""
