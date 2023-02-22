@@ -1,11 +1,12 @@
 from sqlalchemy import (Boolean, Column, DateTime, ForeignKey, Integer,
                         MetaData, String, Table, Text, and_, create_engine,
-                        exists, select, update)
+                        exists, select, update, Date)
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.schema import PrimaryKeyConstraint
 from sqlalchemy.sql import func, select
 
+from datetime import datetime
 from bot import DB_URL
 
 # Configure a Session class.
@@ -57,9 +58,18 @@ class User(Base):
         return session.query(exists().where(
             User.user_id == self.user_id)).scalar()
 
-    def get_fav(self):
+    def get_last_fav(self):
         query = select(Favorite).where(Favorite.user_id==self.user_id).order_by(Favorite.id.desc())
         return session.execute(query).fetchone()
+    
+    def get_all_favs(self):
+        query = select(Favorite).where(Favorite.user_id==self.user_id).order_by(Favorite.id.desc())
+        return session.execute(query).fetchall()
+
+    def get_neighbour_favs(self, date: str):
+        """Get prev and next fav pic for User."""
+        
+        pass
 
     def commit(self):
         session.add(self)
@@ -81,6 +91,28 @@ class Favorite(Base):
     def __init__(self, user_id: int, date: str):
         self.user_id = user_id
         self.pic_date = date
+
+    def __gt__(self, operand):
+        if not isinstance(operand, Favorite):
+            raise TypeError(
+                f'Неверный тип данных для сранвения: {type(operand)} is not a Favorite.'
+            )
+        a = datetime.strptime(self.pic_date, '%Y-%m-%d')
+        print(f'Date(self): {a}')
+        b = datetime.strptime(operand.pic_date, '%Y-%m-%d')
+        print(f'Date(operand): {b}')
+        return a > b
+
+    def __lt__(self, operand):
+        if not isinstance(operand, Favorite):
+            raise TypeError(
+                f'Неверный тип данных для сранвения: {type(operand)} is not a Favorite.'
+            )
+        a = Date(datetime.strptime(self.pic_date, '%Y-%m-%d'))
+        print(f'Date(self): {a}')
+        b = Date(datetime.strptime(operand.pic_date, '%Y-%m-%d'))
+        print(f'Date(operand): {b}')
+        return a < b
 
     def exists(self):
         return session.query(

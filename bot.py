@@ -27,7 +27,7 @@ bot_logger = logging.getLogger(__name__)
 
 ENDPOINT = 'https://api.nasa.gov/planetary/apod?api_key={}&date={}'
 NASA_TOKEN = os.getenv('NASA_TOKEN')
-BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN_TEST')
+BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
 NASA_API_TZ = timezone('US/Eastern')
 
 DB_DIALECT  = os.getenv('DB_DIALECT')
@@ -98,7 +98,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         bot_logger.info(f'Новый пользователь (id = {user.user_id})')
 
     date = datetime.now(tz=NASA_API_TZ).strftime('%Y-%m-%d')
-    user_fav = user.get_fav()
+    user_fav = user.get_last_fav()
     bot_logger.info(f'User have fav? - {user_fav}')
     if user_fav:
         fav_date = f'fav: {user_fav[0].pic_date}'
@@ -180,6 +180,26 @@ async def favs(update: Update, context: ContextTypes.DEFAULT_TYPE):
     bot_logger.info(f'Match: {parsed_date}')
     image_url, caption = get_api_response(parsed_date)
     ####
+    if parsed_date == db.User(update.effective_user).get_last_fav()[0].pic_date:
+        # prev only 
+        # keyboard_gen
+        pass 
+    else:
+        # gen prev + next
+        # keyboard_gen
+        pass
+    all_favs = db.User(update.effective_user).get_all_favs()
+    print(f'{all_favs[0][0]}')
+    print(f'{all_favs[1][0]}')
+    print(f'types: {type(all_favs[0][0])}, {type(all_favs[1][0])}')
+
+    print(f'{all_favs[0][0] > all_favs[1][0]}')
+
+    for i, fav in enumerate(all_favs):
+        print(f'FAV[{i}]: {fav} - id = {fav[0].id}')
+
+    # next_date = parsed_date
+    # prev_date = ...
     reply_markup = build_fav_keyboard(parsed_date)
     if not query.message.photo:
         await query.delete_message()
