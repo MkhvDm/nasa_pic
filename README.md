@@ -3,8 +3,8 @@
 
 Стек: 
 - python-telegram-bot v20, 
-- SQLAlchemy, 
-- PostgreSQL
+- SQLAlchemy + Alembic
+- PostgreSQL, Docker
 
 
 Тех долг:
