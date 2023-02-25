@@ -24,39 +24,61 @@ session = Session()
 # Create a base for the models to build upon.
 Base = declarative_base()
 
-metadata = MetaData()
-users = Table('users', metadata, 
-    Column('user_id', Integer(), primary_key=True),
-    Column('first_name', String(256), nullable=False),
-    Column('last_name', String(256)),
-    Column('username', String(256)),
-    Column('is_bot', Boolean())
-)
-favs = Table('favs', metadata, 
-    Column('id', Integer(), primary_key=True, autoincrement=True),
-    Column('user_id', ForeignKey("users.user_id")),
-    Column('pic_date', String(256), nullable=False)
-)
-metadata.create_all(engine)
+
+# metadata = MetaData()
+metadata = Base.metadata
+# users = Table('users', metadata,
+#     Column('id', Integer(), primary_key=True, autoincrement=True),
+#     Column('user_id', Integer(), unique=True),
+#     Column('first_name', String(256), nullable=False),
+#     Column('last_name', String(256)),
+#     Column('username', String(256)),
+#     Column('is_bot', Boolean()),
+#     Column('is_admin', Boolean(), default=False),
+#     Column('is_leave', Boolean(), default=False),
+# )
+# favs = Table('favs', metadata, 
+#     Column('id', Integer(), primary_key=True, autoincrement=True),
+#     Column('user_id', ForeignKey("users.user_id")),
+#     Column('pic_date', Date(), nullable=False),
+#     Column(
+#         'added_date', 
+#         DateTime(timezone=True), 
+#         nullable=False, 
+#         server_default=func.now()
+#     )
+# )
+# metadata.create_all(engine)
 
 class User(Base):
     __tablename__ = "users"
+    __table_args__ = {'extend_existing': True}
 
-    user_id = Column(Integer, primary_key=True)
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, nullable=False, unique=True)
     first_name = Column(String, nullable=False)
     last_name = Column(String)
     username = Column(String)
     is_bot = Column(Boolean)
+    is_admin = Column(Boolean, nullable=False, default=False)
+    is_leave = Column(Boolean, nullable=False, default=False)
 
-    def __init__(self, user):
+    def __init__(self, user, is_admin=False):
         self.user_id = user.id
         self.first_name = user.first_name
         self.last_name = user.last_name
         self.username = user.username
+        self.is_admin = is_admin
+        self.is_leave = False
 
     def exists(self):
         return session.query(exists().where(
             User.user_id == self.user_id)).scalar()
+
+    @classmethod
+    def get_all(cls):
+        query = select(cls)
+        return session.execute(query).fetchall()
 
     def get_last_fav(self):
         query = select(Favorite).where(Favorite.user_id==self.user_id).order_by(Favorite.id.desc())
@@ -83,12 +105,14 @@ class User(Base):
 
 class Favorite(Base):
     __tablename__ = "favs"
+    __table_args__ = {'extend_existing': True}
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     user_id = Column(Integer, ForeignKey("users.user_id"), nullable=False)
-    pic_date = Column(String, nullable=False)
+    pic_date = Column(Date, nullable=False)
+    added_date = Column(DateTime, nullable=False, server_default=func.now())
 
-    def __init__(self, user_id: int, date: str):
+    def __init__(self, user_id: int, date: datetime.date):
         self.user_id = user_id
         self.pic_date = date
 
@@ -97,22 +121,24 @@ class Favorite(Base):
             raise TypeError(
                 f'Неверный тип данных для сранвения: {type(operand)} is not a Favorite.'
             )
-        a = datetime.strptime(self.pic_date, '%Y-%m-%d')
-        print(f'Date(self): {a}')
-        b = datetime.strptime(operand.pic_date, '%Y-%m-%d')
-        print(f'Date(operand): {b}')
-        return a > b
+        # a = datetime.strptime(self.pic_date, '%Y-%m-%d')
+        # print(f'Date(self): {a}')
+        # b = datetime.strptime(operand.pic_date, '%Y-%m-%d')
+        # print(f'Date(operand): {b}')
+        # return a > b
+        return self.pic_date > operand.pic_date
 
     def __lt__(self, operand):
         if not isinstance(operand, Favorite):
             raise TypeError(
                 f'Неверный тип данных для сранвения: {type(operand)} is not a Favorite.'
             )
-        a = Date(datetime.strptime(self.pic_date, '%Y-%m-%d'))
-        print(f'Date(self): {a}')
-        b = Date(datetime.strptime(operand.pic_date, '%Y-%m-%d'))
-        print(f'Date(operand): {b}')
-        return a < b
+        # a = Date(datetime.strptime(self.pic_date, '%Y-%m-%d'))
+        # print(f'Date(self): {a}')
+        # b = Date(datetime.strptime(operand.pic_date, '%Y-%m-%d'))
+        # print(f'Date(operand): {b}')
+        # return a < b
+        return self.pic_date < operand.pic_date
 
     def exists(self):
         return session.query(
@@ -122,6 +148,11 @@ class Favorite(Base):
                     Favorite.pic_date == self.pic_date
                 )
             )).scalar()
+    
+    @classmethod
+    def get_all(cls):
+        query = select(cls)
+        return session.execute(query).fetchall()
                
     def commit(self):
         session.add(self)
