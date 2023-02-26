@@ -13,7 +13,7 @@ def get_start_keyboard(date: str, fav_date: Union[str, None] = None):
     return InlineKeyboardMarkup(keyboard)
 
 def build_fav_keyboard(prev: Union[str, None] = None, next: Union[str, None] = None):
-    # TODO favorite listing
+    """Создание клавиатуры-листалки для Избранного."""
     keyboard = [[], [InlineKeyboardButton("return to menu", callback_data='menu'),],]
     if prev:
         keyboard[0].append(InlineKeyboardButton("⬅️", callback_data=f'fav: {prev}'))
@@ -21,29 +21,23 @@ def build_fav_keyboard(prev: Union[str, None] = None, next: Union[str, None] = N
         keyboard[0].append(InlineKeyboardButton("➡️", callback_data=f'fav: {next}'))
     return InlineKeyboardMarkup(keyboard)
 
-def build_listing_keyboard(date: str):
+def build_listing_keyboard(date: str, is_prev: bool = False, is_next: bool = False):
     """Создание клавиатуры-листалки фото."""
-    prev_date = ExtDate.strptime(date, '%Y-%m-%d').get_prev_day()
-    next_date = ExtDate.strptime(date, '%Y-%m-%d').get_next_day()
-
     keyboard = [
         [InlineKeyboardButton("add to favorite", callback_data=f'favs_add: {date}'), ],
-        [InlineKeyboardButton("⬅️", callback_data=prev_date), InlineKeyboardButton("➡️", callback_data=next_date), ],
+        [],
         [InlineKeyboardButton("return to menu", callback_data='menu'), ],
     ]
-    return InlineKeyboardMarkup(keyboard)
-
-def build_prev_keyboard(date: str):
-    """Создание клавиатуры-листалки (без кнопки 'Далее')."""
-    prev_date = ExtDate.strptime(date, '%Y-%m-%d').get_prev_day()
-    keyboard = [
-        [InlineKeyboardButton("add to favorite", callback_data=f'favs_add: {date}'), ],
-        [InlineKeyboardButton("⬅️", callback_data=prev_date), ],
-        [InlineKeyboardButton("return to menu", callback_data='menu'), ],
-    ]
+    if is_prev:
+        prev_date = ExtDate.strptime(date, '%Y-%m-%d').get_prev_day()
+        keyboard[1].append(InlineKeyboardButton("⬅️", callback_data=prev_date))
+    if is_next:
+        next_date = ExtDate.strptime(date, '%Y-%m-%d').get_next_day()
+        keyboard[1].append(InlineKeyboardButton("➡️", callback_data=next_date))
     return InlineKeyboardMarkup(keyboard)
 
 def build_return_to_menu_kb():
     """Клавиатура с кнопкой возврата в главное меню."""
     keyboard = [[InlineKeyboardButton("return to menu", callback_data='menu'), ], ]
     return InlineKeyboardMarkup(keyboard)
+    

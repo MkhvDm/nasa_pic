@@ -30,6 +30,7 @@ NASA_TOKEN = os.getenv('NASA_TOKEN')
 BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN_TEST')
 NASA_API_TZ = timezone('US/Eastern')
 MAX_CAPTION_SIZE = 1024
+APOD_FIRST_DATE = '1995-06-16'
 
 DB_DIALECT  = os.getenv('DB_DIALECT')
 DB_HOSTNAME = os.getenv('DB_HOSTNAME')
@@ -113,6 +114,7 @@ async def button_dispatcher(update: Update, context):
         return
 
 def get_api_response(date: str) -> Tuple[str, List[str]]:
+    """Получение ответа от APOD API."""
     endpoint = ENDPOINT.format(NASA_TOKEN, date)
     response = requests.get(endpoint)
     if response.status_code != HTTPStatus.OK:
@@ -135,11 +137,14 @@ async def get_img(update: Update, context: ContextTypes.DEFAULT_TYPE):
     bot_logger.info(f'Получение фото от {date_str}')
     # API requests may be upgraded with aiohttp: 
     image_url, captions = get_api_response(date_str)
+    is_next, is_prev = False, False
 
-    if date_str == datetime.now(tz=NASA_API_TZ).strftime('%Y-%m-%d'):
-        reply_markup = kb.build_prev_keyboard(date_str)
-    else:
-        reply_markup = kb.build_listing_keyboard(date_str)
+    if not date_str == datetime.now(tz=NASA_API_TZ).strftime('%Y-%m-%d'):
+        is_next = True
+    if not date_str == datetime.strptime(APOD_FIRST_DATE, '%Y-%m-%d'):
+        is_prev = True
+
+    reply_markup = kb.build_listing_keyboard(date_str, is_prev, is_next)
 
     chat = update.effective_chat
     if not query.message.photo:
