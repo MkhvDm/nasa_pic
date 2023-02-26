@@ -3,7 +3,7 @@ import os
 import re
 from datetime import datetime
 from http import HTTPStatus
-from typing import Union, Tuple, List
+from typing import Tuple, List
 
 import psycopg2
 import requests
@@ -11,16 +11,15 @@ from dotenv import load_dotenv
 from psycopg2.errors import OperationalError
 from psycopg2.extensions import ISOLATION_LEVEL_AUTOCOMMIT
 from pytz import timezone
-from telegram import (InlineKeyboardButton, InlineKeyboardMarkup,
-                      InputMediaPhoto, Update, InlineQueryResultArticle)
+from telegram import InputMediaPhoto, Update
 from telegram.ext import (ApplicationBuilder, CallbackQueryHandler,
                           CommandHandler, MessageHandler, ContextTypes,
                           filters)
 
 import database as db
+import keyboards as kb
 from bot_logger import logger_config
-from utils import ExtDate
-from uuid import uuid4
+from utils import binary_search
 
 load_dotenv()
 
@@ -45,74 +44,28 @@ DB_URL = "%s://%s:%s@%s/%s" % (
     DB_DATABASE
 )
 
-def get_start_keyboard(date: str, fav_date: Union[str, None] = None):
-    """Стартовое меню."""
-    keyboard = [[InlineKeyboardButton("🌌 Картинка дня", callback_data=date)],]
-    if fav_date:
-        keyboard.append([InlineKeyboardButton("❤ Избранное", callback_data=fav_date)],)
-    return InlineKeyboardMarkup(keyboard)
-
-def build_fav_keyboard(prev: str, next: Union[str, None] = None):
-    # TODO favorite listing
-    if next:
-        pass
-    else:
-        keyboard = [
-            [InlineKeyboardButton("⬅️", callback_data=f'fav: {prev}'), ],
-            [InlineKeyboardButton("return to menu", callback_data='menu'), ],
-        ]
-    return InlineKeyboardMarkup(keyboard)
-
-def build_listing_keyboard(date: str):
-    """Создание клавиатуры-листалки фото."""
-    prev_date = ExtDate.strptime(date, '%Y-%m-%d').get_prev_day()
-    next_date = ExtDate.strptime(date, '%Y-%m-%d').get_next_day()
-
-    keyboard = [
-        [InlineKeyboardButton("add to favorite", callback_data=f'favs_add: {date}'), ],
-        [InlineKeyboardButton("⬅️", callback_data=prev_date), InlineKeyboardButton("➡️", callback_data=next_date), ],
-        [InlineKeyboardButton("return to menu", callback_data='menu'), ],
-    ]
-    return InlineKeyboardMarkup(keyboard)
-
-def build_prev_keyboard(date: str):
-    """Создание клавиатуры-листалки (без кнопки 'Далее')."""
-    prev_date = ExtDate.strptime(date, '%Y-%m-%d').get_prev_day()
-    keyboard = [
-        [InlineKeyboardButton("add to favorite", callback_data=f'favs_add: {date}'), ],
-        [InlineKeyboardButton("⬅️", callback_data=prev_date), ],
-        [InlineKeyboardButton("return to menu", callback_data='menu'), ],
-    ]
-    return InlineKeyboardMarkup(keyboard)
-
-def build_return_to_menu_kb():
-    """Клавиатура с кнопкой возврата в главное меню."""
-    keyboard = [[InlineKeyboardButton("return to menu", callback_data='menu'), ], ]
-    return InlineKeyboardMarkup(keyboard)
-
 async def admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     if db.User(user).user_id == 214733890:
         bot_logger.info(f'Админ {user.username} в здании!')
     else:
         await context.bot.send_message(
-            update.effective_chat.id, 'Нет прав!', reply_markup=build_return_to_menu_kb()
+            update.effective_chat.id, 'Нет прав!', reply_markup=kb.build_return_to_menu_kb()
         )
         return
-    users = db.User.get_all()[:10]
+    users = db.User.get_all(limit=10)
+    favs = db.Favorite.get_all(limit=10)
     resp = '\n'.join(
         [f'{user[0].first_name} {user[0].last_name} - {user[0].username}' for user in users]
     )
-    await context.bot.send_message(
-        update.effective_chat.id, resp  #, reply_markup=build_return_to_menu_kb()
-    )
-    favs = db.Favorite.get_all()
     resp_favs = '\n'.join(
         [f'{str(fav[0].id)}: {fav[0].user_id} - {fav[0].pic_date}' for fav in favs]
     )
-    print(f'resp favs: {resp_favs}')
     await context.bot.send_message(
-        update.effective_chat.id, resp_favs, reply_markup=build_return_to_menu_kb()
+        update.effective_chat.id, resp
+    )
+    await context.bot.send_message(
+        update.effective_chat.id, resp_favs, reply_markup=kb.build_return_to_menu_kb()
     )
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -126,12 +79,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     date = datetime.now(tz=NASA_API_TZ).strftime('%Y-%m-%d')
     user_fav = user.get_last_fav()
-    print(f'type(user_fav) is {type(user_fav)}')
-    bot_logger.info(f'User have fav? - {user_fav}')
     if user_fav:
-        print(f'user_fav[0].pic_date: {user_fav[0].pic_date}')
+        bot_logger.info(f'User has fav.')
         fav_date = f'fav: {user_fav[0].pic_date}'
-        print(f'insert fav query: {fav_date}')
     else:
         fav_date = None
 
@@ -142,7 +92,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await context.bot.send_message(
         chat_id=update.effective_chat.id,
         text=message,
-        reply_markup=get_start_keyboard(date, fav_date)
+        reply_markup=kb.get_start_keyboard(date, fav_date)
     )
 
 async def button_dispatcher(update: Update, context):
@@ -160,6 +110,7 @@ async def button_dispatcher(update: Update, context):
         await get_img(update, context)
     else:
         bot_logger.debug('Необознанный запрос!')
+        return
 
 def get_api_response(date: str) -> Tuple[str, List[str]]:
     endpoint = ENDPOINT.format(NASA_TOKEN, date)
@@ -182,51 +133,55 @@ async def get_img(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     date_str = query.data
     bot_logger.info(f'Получение фото от {date_str}')
+    # API requests may be upgraded with aiohttp: 
     image_url, captions = get_api_response(date_str)
 
     if date_str == datetime.now(tz=NASA_API_TZ).strftime('%Y-%m-%d'):
-        reply_markup = build_prev_keyboard(date_str)
+        reply_markup = kb.build_prev_keyboard(date_str)
     else:
-        reply_markup = build_listing_keyboard(date_str)
+        reply_markup = kb.build_listing_keyboard(date_str)
 
     chat = update.effective_chat
     if not query.message.photo:
         await query.delete_message()
         await context.bot.send_photo(chat.id, image_url, captions[0], reply_markup=reply_markup)
         return
-
     await query.edit_message_media(media=InputMediaPhoto(image_url, captions[0]), reply_markup=reply_markup)
 
 async def favs(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Возвращает дату последнего избранного фото. FIXME"""
+    user = db.User(update.effective_user)
     query = update.callback_query
     query_fav_date = query.data
     await query.answer()
     bot_logger.info(f'Query-запрос: {query_fav_date}')
     parsed_date = re.match('fav: (\d\d\d\d-\d\d-\d\d)', query_fav_date).group(1)
     bot_logger.info(f'Match: {parsed_date}')
+    # API requests may be upgraded with aiohttp: 
     image_url, captions = get_api_response(parsed_date)
-    ####
-    if parsed_date == db.User(update.effective_user).get_last_fav()[0].pic_date:
-        # prev only 
-        # keyboard_gen
-        pass 
+    # Generate query with favs pic_date for keyboard:
+    parsed_date = datetime.strptime(parsed_date, '%Y-%m-%d').date()
+    favs = user.get_all_favs()
+    favs_num = len(favs)
+    fav_index = binary_search(
+        favs,
+        user.get_fav_by_pic_date(parsed_date),
+        lambda x: x[0].added_date
+    )
+    next, prev = None, None
+    if fav_index == 0:
+        if fav_index + 1 < favs_num:
+            prev = favs[fav_index + 1]
+    elif fav_index == favs_num - 1:
+        next = favs[fav_index - 1]
     else:
-        # gen prev + next
-        # keyboard_gen
-        pass
-    all_favs = db.User(update.effective_user).get_all_favs()
-    # print(f'{all_favs[0][0]}')  # out of range
-    # print(f'{all_favs[1][0]}')  # out of range
-    # print(f'types: {type(all_favs[0][0])}, {type(all_favs[1][0])}')
-    # print(f'{all_favs[0][0] > all_favs[1][0]}')
+        if fav_index + 1 < favs_num:
+            prev = favs[fav_index + 1]
+        next = favs[fav_index - 1]
+    prev_date = datetime.strftime(prev[0].pic_date, '%Y-%m-%d') if prev else None
+    next_date = datetime.strftime(next[0].pic_date, '%Y-%m-%d') if next else None
+    reply_markup = kb.build_fav_keyboard(prev_date, next_date)
 
-    for i, fav in enumerate(all_favs):
-        print(f'FAV[{i}]: {fav} - id = {fav[0].id}')
-
-    # next_date = parsed_date
-    # prev_date = ...
-    reply_markup = build_fav_keyboard(parsed_date)
     if not query.message.photo:
         await query.delete_message()
         await context.bot.send_photo(
@@ -238,9 +193,7 @@ async def favs(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     await query.edit_message_media(
         media=InputMediaPhoto(image_url, captions[0]), reply_markup=reply_markup
-        )
-    
-    # await query.edit_message_text(text=message, reply_markup=reply_markup)
+    )
 
 async def favs_add(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Добавление в БД данных о избранных фото пользователей."""
@@ -261,8 +214,11 @@ async def favs_add(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
     await query.answer()
 
-def user_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def user_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
     bot_logger.info(f'Сообщение от пользователя ({update.effective_user.id}): {update.effective_message.text}')
+    await context.bot.send_message(
+        chat_id=update.effective_chat.id, text="Хорошо, я передам..."
+    )
 
 if __name__ == '__main__':
     logger_config(bot_logger)

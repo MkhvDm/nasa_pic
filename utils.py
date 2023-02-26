@@ -1,5 +1,18 @@
 from datetime import datetime, timedelta
+from typing import Callable
 
+
+def binary_search(array: list, x, key: Callable):
+    lo, hi = 0, len(array)
+    while lo < hi:
+        mid = (lo + hi) // 2
+        if key(array[mid]) <= key(x):
+            hi = mid
+        else:
+            lo = mid + 1
+    if lo != len(array) and array[lo] == x:
+        return lo
+    raise ValueError('Element not found!')
 
 class ExtDate(datetime):
 
