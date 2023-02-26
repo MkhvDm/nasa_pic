@@ -1,6 +1,6 @@
 from typing import Union
 
-from telegram import (InlineKeyboardButton, InlineKeyboardMarkup, )
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
 from utils import ExtDate
 

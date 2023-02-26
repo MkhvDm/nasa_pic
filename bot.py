@@ -3,7 +3,7 @@ import os
 import re
 from datetime import datetime
 from http import HTTPStatus
-from typing import Tuple, List
+from typing import List, Tuple
 
 import psycopg2
 import requests
@@ -13,7 +13,7 @@ from psycopg2.extensions import ISOLATION_LEVEL_AUTOCOMMIT
 from pytz import timezone
 from telegram import InputMediaPhoto, Update
 from telegram.ext import (ApplicationBuilder, CallbackQueryHandler,
-                          CommandHandler, MessageHandler, ContextTypes,
+                          CommandHandler, ContextTypes, MessageHandler,
                           filters)
 
 import database as db

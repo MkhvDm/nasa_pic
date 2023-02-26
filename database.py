@@ -1,10 +1,11 @@
-from sqlalchemy import (Boolean, Column, DateTime, ForeignKey, Integer,
-                        String, and_, create_engine, exists, select, Date)
+from datetime import datetime
+
+from sqlalchemy import (Boolean, Column, Date, DateTime, ForeignKey, Integer,
+                        String, and_, create_engine, exists, select)
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.sql import func, select
 
-from datetime import datetime
 from bot import DB_URL
 
 Session = sessionmaker()
