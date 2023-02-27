@@ -27,7 +27,7 @@ bot_logger = logging.getLogger(__name__)
 
 ENDPOINT = 'https://api.nasa.gov/planetary/apod?api_key={}&date={}'
 NASA_TOKEN = os.getenv('NASA_TOKEN')
-BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN_TEST')
+BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN_PROD')
 NASA_API_TZ = timezone('US/Eastern')
 MAX_CAPTION_SIZE = 1024
 APOD_FIRST_DATE = '1995-06-16'
@@ -37,6 +37,7 @@ DB_HOSTNAME = os.getenv('DB_HOSTNAME')
 DB_USERNAME = os.getenv('DB_USERNAME')
 DB_PASSWORD = os.getenv('DB_PASSWORD')
 DB_DATABASE = os.getenv('DB_DATABASE')
+DB_PORT = os.getenv('DB_PORT')
 DB_URL = "%s://%s:%s@%s/%s" % (
     DB_DIALECT,
     DB_USERNAME,
@@ -81,7 +82,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     date = datetime.now(tz=NASA_API_TZ).strftime('%Y-%m-%d')
     user_fav = user.get_last_fav()
     if user_fav:
-        bot_logger.info(f'User has fav.')
+        bot_logger.debug(f'У пользователя есть Избранное.')
         fav_date = f'fav: {user_fav[0].pic_date}'
     else:
         fav_date = None
@@ -99,7 +100,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def button_dispatcher(update: Update, context):
     """Перенаправление на нужный обработчик исходя из текста запроса."""
     query_data = update.callback_query.data
-    bot_logger.debug('Запрос: {query_data}')
+    bot_logger.debug(f'Запрос: {query_data}')
     if query_data.startswith('fav: '):
         await favs(update, context)
     if query_data.startswith('favs_add'):
@@ -126,6 +127,7 @@ def get_api_response(date: str) -> Tuple[str, List[str]]:
         image_url = response.get('url')
         caption = f'Картинка от {date[-2:]}.{date[-5:-3]}\n' + response.get('explanation')
         captions = [caption[i:i+MAX_CAPTION_SIZE] for i in range(0, len(caption), MAX_CAPTION_SIZE)]
+        bot_logger.info('Успешно получен ответ от APOD API!')
     return (image_url, captions)
 
 
@@ -134,7 +136,7 @@ async def get_img(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     date_str = query.data
-    bot_logger.info(f'Получение фото от {date_str}')
+    bot_logger.info(f'Получение фото от {date_str}...')
     # API requests may be upgraded with aiohttp: 
     image_url, captions = get_api_response(date_str)
     is_next, is_prev = False, False
@@ -154,14 +156,15 @@ async def get_img(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.edit_message_media(media=InputMediaPhoto(image_url, captions[0]), reply_markup=reply_markup)
 
 async def favs(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Возвращает дату последнего избранного фото. FIXME"""
+    """Получение избранных фото."""
     user = db.User(update.effective_user)
     query = update.callback_query
     query_fav_date = query.data
     await query.answer()
-    bot_logger.info(f'Query-запрос: {query_fav_date}')
+    bot_logger.info(
+        f'Запрос избранного от даты {query_fav_date} (+1/-1). User: {user}.'
+        )
     parsed_date = re.match('fav: (\d\d\d\d-\d\d-\d\d)', query_fav_date).group(1)
-    bot_logger.info(f'Match: {parsed_date}')
     # API requests may be upgraded with aiohttp: 
     image_url, captions = get_api_response(parsed_date)
     # Generate query with favs pic_date for keyboard:
@@ -199,6 +202,7 @@ async def favs(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.edit_message_media(
         media=InputMediaPhoto(image_url, captions[0]), reply_markup=reply_markup
     )
+    bot_logger.info(f'Запрос избранного обработан! User: {user}.')
 
 async def favs_add(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Добавление в БД данных о избранных фото пользователей."""
@@ -233,30 +237,12 @@ if __name__ == '__main__':
             dbname=DB_DATABASE, 
             user=DB_USERNAME, 
             password=DB_PASSWORD, 
-            host=DB_HOSTNAME)
+            host=DB_HOSTNAME,
+            port=DB_PORT
+        )
         conn.set_isolation_level(ISOLATION_LEVEL_AUTOCOMMIT)
         cursor = conn.cursor()
         bot_logger.info('Succees connect to DB!')
-
-        # cursor.execute(
-        #     '''
-        #     DROP TABLE favs;
-        #     '''
-        # )
-        # conn.commit()
-        # cursor.execute(
-        #     '''
-        #     DROP TABLE users;
-        #     '''
-        # )
-        # conn.commit()
-        # cursor.execute(
-        #     '''
-        #     DROP TABLE alembic_version;
-        #     '''
-        # )
-        # conn.commit()
-
     except OperationalError as err:
         bot_logger.error(f'Connect to DB error! {err}')
 

@@ -69,7 +69,7 @@ class User(Base):
         session.commit()
 
     def __repr__(self):
-        return "<User (user_id='%i', first_name='%s', username='%s')>" % (
+        return "<User (user_id=%i, first_name=%s, username=%s)>" % (
             self.user_id, self.first_name, self.username
         )
 
@@ -120,6 +120,6 @@ class Favorite(Base):
         session.commit()
 
     def __repr__(self):
-        return "<Fav (user_id='%i', pic='%s', added='%s'>" % (
+        return "<Fav (user_id=%i, pic=%s, added=%s>" % (
             self.user_id, self.pic_date, self.added_date
         )
