@@ -34,15 +34,16 @@ APOD_FIRST_DATE = '1995-06-16'
 
 DB_DIALECT  = os.getenv('DB_DIALECT')
 DB_HOSTNAME = os.getenv('DB_HOSTNAME')
-DB_USERNAME = os.getenv('DB_USERNAME')
-DB_PASSWORD = os.getenv('DB_PASSWORD')
+DB_USERNAME = os.getenv('POSTGRES_USER')
+DB_PASSWORD = os.getenv('POSTGRES_PASSWORD')
 DB_DATABASE = os.getenv('DB_DATABASE')
 DB_PORT = os.getenv('DB_PORT')
-DB_URL = "%s://%s:%s@%s/%s" % (
+DB_URL = "%s://%s:%s@%s:%s/%s" % (
     DB_DIALECT,
     DB_USERNAME,
     DB_PASSWORD,
     DB_HOSTNAME,
+    DB_PORT,
     DB_DATABASE
 )
 
@@ -232,19 +233,23 @@ async def user_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
 if __name__ == '__main__':
     logger_config(bot_logger)
     bot_logger.debug('Preparing bot...')
-    try:
-        conn = psycopg2.connect(
-            dbname=DB_DATABASE, 
-            user=DB_USERNAME, 
-            password=DB_PASSWORD, 
-            host=DB_HOSTNAME,
-            port=DB_PORT
-        )
-        conn.set_isolation_level(ISOLATION_LEVEL_AUTOCOMMIT)
-        cursor = conn.cursor()
-        bot_logger.info('Succees connect to DB!')
-    except OperationalError as err:
-        bot_logger.error(f'Connect to DB error! {err}')
+    bot_logger.debug('... DONE!')
+    DB_CONNECT_TRIES = 10
+    for _ in range(DB_CONNECT_TRIES):
+        try:
+            conn = psycopg2.connect(
+                dbname=DB_DATABASE, 
+                user=DB_USERNAME, 
+                password=DB_PASSWORD, 
+                host=DB_HOSTNAME,
+                port=DB_PORT
+            )
+            conn.set_isolation_level(ISOLATION_LEVEL_AUTOCOMMIT)
+            cursor = conn.cursor()
+            bot_logger.info('Succees connect to DB!')
+            break
+        except OperationalError as err:
+            bot_logger.error(f'Connect to DB error! {err}')
 
     application = ApplicationBuilder().token(BOT_TOKEN).build()
     application.add_handler(CommandHandler('start', start))

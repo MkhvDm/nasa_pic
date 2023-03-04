@@ -5,4 +5,4 @@ WORKDIR /nasa_pic_app
 COPY . .
 RUN pip3 install -r requirements.txt --no-cache-dir
 
-CMD ["python3", "bot_bu.py" ]
+CMD ["python3", "bot.py" ]

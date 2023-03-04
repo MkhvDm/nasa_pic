@@ -29,14 +29,16 @@ target_metadata = [Base.metadata]
 # ... etc.
 DB_DIALECT  = getenv('DB_DIALECT')
 DB_HOSTNAME = getenv('DB_HOSTNAME')
-DB_USERNAME = getenv('DB_USERNAME')
-DB_PASSWORD = getenv('DB_PASSWORD')
+DB_USERNAME = getenv('POSTGRES_USER')
+DB_PASSWORD = getenv('POSTGRES_PASSWORD')
+DB_PORT     = getenv('DB_PORT')
 DB_DATABASE = getenv('DB_DATABASE')
-DB_URL = "%s://%s:%s@%s/%s" % (
+DB_URL = "%s://%s:%s@%s:%s/%s" % (
     DB_DIALECT,
     DB_USERNAME,
     DB_PASSWORD,
     DB_HOSTNAME,
+    DB_PORT,
     DB_DATABASE
 )
 config.set_main_option('sqlalchemy.url', DB_URL)
